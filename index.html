@@ -234,8 +234,8 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
   var SEOUL_ROUTE_TYPE = { "0": "공용", "1": "공항", "2": "마을", "3": "간선", "4": "지선", "5": "순환", "6": "광역", "7": "인천", "8": "경기", "9": "폐지", "14": "한강" };
   var DEFAULTS = {
     key: "",
-    base: "https://apis.data.go.kr/1613000",
-    seoulBase: "http://ws.bus.go.kr/api/rest",
+    base: "https://bus.c-hyuna12.workers.dev",
+    seoulBase: "https://bus.c-hyuna12.workers.dev/seoul",
     auto: true, city: "seoul", stops: []
   };
 
@@ -250,6 +250,9 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
       var s = JSON.parse(localStorage.getItem(STORE));
       if (s && typeof s === "object") {
         var m = Object.assign(clone(DEFAULTS), s);
+        // 예전 기본 주소(직접 호출)로 저장돼 있으면 중계 서버 주소로 바꿔 준다
+        if (!m.base || m.base === "https://apis.data.go.kr/1613000") m.base = DEFAULTS.base;
+        if (!m.seoulBase || m.seoulBase === "http://ws.bus.go.kr/api/rest") m.seoulBase = DEFAULTS.seoulBase;
         if (!Array.isArray(m.stops)) m.stops = [];
         return m;
       }
