@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>버스 도착 한눈에</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: 정류장별 카드 그리드. 카드 하나가 정류소 하나이고, 안에 내가 타는 노선만 도착 시간순으로 쌓인다. */
+:root {
+  --bg: #edf0f3;
+  --surface: #ffffff;
+  --surface-2: #f4f6f8;
+  --ink: #14202b;
+  --muted: #5b6a77;
+  --line: #d6dde4;
+  --accent: #0a6b95;
+  --accent-ink: #ffffff;
+  --soon: #c2351d;
+  --ok: #1b7a4b;
+  --warn-bg: #fff3d6;
+  --warn-ink: #6b4a00;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1418; --surface: #172028; --surface-2: #1d2832; --ink: #e8eef2; --muted: #92a1ad;
+    --line: #2a3640; --accent: #5cc0e8; --accent-ink: #06222e; --soon: #ff8a73;
+    --ok: #62d49a; --warn-bg: #3b3015; --warn-ink: #f2d27a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1418; --surface: #172028; --surface-2: #1d2832; --ink: #e8eef2; --muted: #92a1ad;
+  --line: #2a3640; --accent: #5cc0e8; --accent-ink: #06222e; --soon: #ff8a73;
+  --ok: #62d49a; --warn-bg: #3b3015; --warn-ink: #f2d27a; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stamp { font-family: var(--font-num); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+button, input, select { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 8px;
+  padding: 7px 12px; cursor: pointer; min-height: 36px;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.ghost { background: transparent; }
+button.small { min-height: 30px; padding: 3px 10px; font-size: 13px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .55; cursor: default; }
+
+.meter { font-family: var(--font-num); font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-variant-numeric: tabular-nums; }
+.meter.high { color: var(--warn-ink); background: var(--warn-bg); border-color: transparent; }
+
+.notice { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+
+/* 설정 */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 18px; }
+.panel h2 { margin: 0; font-size: 16px; }
+.panel h3 { margin: 0; font-size: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field > label { font-size: 13px; color: var(--muted); }
+input[type="text"], input[type="password"], select {
+  border: 1px solid var(--line); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; min-width: 0; width: 100%; min-height: 38px;
+}
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+.stoprows { display: flex; flex-direction: column; gap: 12px; }
+.stoprow { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding-bottom: 12px; border-bottom: 1px dashed var(--line); }
+.stoprow:last-child { border-bottom: 0; padding-bottom: 0; }
+.stoprow .name { flex: 1 1 150px; }
+.stoprow .src { flex: 0 0 104px; }
+.stoprow .city { flex: 0 0 84px; }
+.stoprow .idf { flex: 1 1 150px; }
+.stoprow .routes { flex: 2 1 200px; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.section { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.finder { display: grid; grid-template-columns: 1fr 1.2fr 1fr auto; gap: 8px; align-items: end; }
+.results { display: flex; flex-direction: column; gap: 10px; }
+.res { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-2); }
+.res-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.res-name { font-weight: 600; overflow-wrap: anywhere; }
+.res-id { font-family: var(--font-num); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--font-num); font-size: 13px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 10px; min-height: 28px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.msg { font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--soon); }
+@media (max-width: 640px) {
+  .finder { grid-template-columns: 1fr 1fr; }
+  .finder .field.q-name { grid-column: 1 / -1; }
+}
+
+/* 정류장 카드 */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; }
+.card-head { padding: 12px 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.card-head h3 { margin: 0; font-size: 16px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.sid { font-family: var(--font-num); font-size: 12px; color: var(--muted); text-align: right; }
+.rows { display: flex; flex-direction: column; }
+.arr { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+.arr:first-child { border-top: 0; }
+.badge { font-family: var(--font-num); font-weight: 600; font-size: 15px; background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 3px 9px; min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+.mid { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.times { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.t1 { font-family: var(--font-num); font-weight: 600; font-size: 20px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.t1.soon { color: var(--soon); }
+.t1.text { font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--muted); }
+.t2 { font-family: var(--font-num); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.arr.none .badge { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.arr.none .t1 { font-size: 14px; font-weight: 500; color: var(--muted); font-family: var(--font-body); }
+.state { padding: 18px 16px; color: var(--muted); font-size: 14px; }
+.state.err { color: var(--soon); }
+.state small { display: block; margin-top: 6px; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.empty { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: 12px; padding: 28px 20px; color: var(--muted); text-align: center; }
+.empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  .card.loading { opacity: .65; transition: opacity .2s; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>버스 도착 한눈에</h1>
+      <p class="sub">국토교통부(TAGO)와 서울시 도착예정 · 정류장별로 내가 타는 버스만</p>
+    </div>
+    <div class="tools">
+      <span class="meter" id="meter" title="이 브라우저에서 오늘 보낸 조회 횟수예요. TAGO는 API별 일일 10,000회가 한도이고, 서울 API 한도는 활용 신청 화면에서 확인하세요.">오늘 TAGO 0/10000 · 서울 0</span>
+      <span class="stamp" id="stamp">--:--:--</span>
+      <button id="refresh" class="primary" type="button">새로고침</button>
+      <button id="toggle-settings" type="button">설정</button>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <section id="settings" class="panel" hidden>
+    <h2>설정</h2>
+    <div class="field">
+      <label for="key">공공데이터포털 인증키</label>
+      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="발급받은 인증키(Encoding 또는 Decoding 아무거나)">
+      <p class="hint">이 기기의 브라우저에만 저장되고 다른 곳으로 보내지 않아요. 휴대폰과 컴퓨터는 각각 입력해야 합니다. TAGO와 서울 API에 같은 키를 쓰며, 각 API의 활용 신청이 승인돼 있어야 해요.</p>
+    </div>
+    <div class="field">
+      <label for="base">TAGO API 기본 주소</label>
+      <input id="base" type="text" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="seoulBase">서울 API 기본 주소</label>
+      <input id="seoulBase" type="text" spellcheck="false">
+      <p class="hint">기본값 그대로 쓰면 돼요. 각 API 화면의 End Point와 다르면 바꿔 주세요. 중계 서버를 만들었다면 두 주소를 그 서버 주소로 바꾸고(서울은 끝에 /seoul 추가), 인증키 칸은 비워도 됩니다.</p>
+    </div>
+
+    <div class="section">
+      <h3>내 정류장</h3>
+      <div id="stoprows" class="stoprows"></div>
+      <p class="hint">버스 번호는 쉼표로 구분하고, 비우면 그 정류장의 모든 노선을 보여줍니다.</p>
+    </div>
+
+    <div class="section">
+      <h3>정류장 찾기</h3>
+      <div class="finder">
+        <div class="field"><label for="q-city">지역</label><select id="q-city"></select></div>
+        <div class="field q-name"><label for="q-name">정류소 이름</label><input id="q-name" type="text" placeholder="예: 전통시장" autocomplete="off"></div>
+        <div class="field"><label for="q-no">정류소 번호(선택)</label><input id="q-no" type="text" inputmode="numeric" placeholder="예: 44810" autocomplete="off"></div>
+        <button id="q-go" class="primary" type="button">검색</button>
+      </div>
+      <div class="row-actions">
+        <button id="q-cities" class="small" type="button">TAGO 도시 목록 불러오기</button>
+        <span class="msg" id="q-cities-msg"></span>
+      </div>
+      <p class="hint">서울은 서울시 API로, 그 밖의 지역은 TAGO로 조회해요. 같은 이름의 정류장이 방향별로 여러 개 나올 수 있으니 「경유 노선」으로 내 버스가 서는 쪽을 확인해 고르세요. 서울은 정류소 번호(5자리)만 입력해도 됩니다.</p>
+      <div id="q-out" class="results"></div>
+    </div>
+
+    <label class="check"><input id="auto" type="checkbox"> 화면이 열려 있는 동안 60초마다 자동 갱신</label>
+    <div class="row-actions">
+      <button id="save" class="primary" type="button">저장하고 조회</button>
+      <button id="close-settings" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <main id="grid" class="grid"></main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var STORE = "busboard.v3";
+  var CALLS = "busboard.calls2";
+  var CITIES = "busboard.cities";
+  var TAGO_LIMIT = 10000;
+  var ARR = "ArvlInfoInqireService";
+  var STN = "BusSttnInfoInqireService";
+  var SEOUL_ROUTE_TYPE = { "0": "공용", "1": "공항", "2": "마을", "3": "간선", "4": "지선", "5": "순환", "6": "광역", "7": "인천", "8": "경기", "9": "폐지", "14": "한강" };
+  var DEFAULTS = {
+    key: "",
+    base: "https://apis.data.go.kr/1613000",
+    seoulBase: "http://ws.bus.go.kr/api/rest",
+    auto: true, city: "seoul", stops: []
+  };
+
+  var state = load();
+  var results = {};
+  var lastAt = null;
+  var timer = null;
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE));
+      if (s && typeof s === "object") {
+        var m = Object.assign(clone(DEFAULTS), s);
+        if (!Array.isArray(m.stops)) m.stops = [];
+        return m;
+      }
+    } catch (e) {}
+    return clone(DEFAULTS);
+  }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} }
+  function loadCities() {
+    try { var c = JSON.parse(localStorage.getItem(CITIES)); return Array.isArray(c) ? c : []; } catch (e) { return []; }
+  }
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function getCalls() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CALLS));
+      if (c && c.date === today()) return { t: c.t || 0, s: c.s || 0 };
+    } catch (e) {}
+    return { t: 0, s: 0 };
+  }
+  function addCalls(kind) {
+    var c = getCalls();
+    c[kind] += 1;
+    try { localStorage.setItem(CALLS, JSON.stringify({ date: today(), t: c.t, s: c.s })); } catch (e) {}
+  }
+
+  function $(s) { return document.querySelector(s); }
+  function h(tag, props) {
+    var e = document.createElement(tag);
+    props = props || {};
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v === false || v == null) return;
+      if (k === "class") e.className = v;
+      else if (k.indexOf("on") === 0) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? "" : v);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      [].concat(arguments[i]).forEach(function (kid) {
+        if (kid == null || kid === false) return;
+        e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+      });
+    }
+    return e;
+  }
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  /* ---------- 공통 응답 처리 ---------- */
+  function badResponse(text) {
+    var t = String(text || "");
+    var d = t.replace(/\s+/g, " ").slice(0, 160);
+    if (/SERVICE[_ ]KEY/i.test(t)) return { error: "인증키를 인식하지 못했어요. 이 API의 활용 신청이 승인됐는지, 키를 정확히 복사했는지 확인해 주세요. 신청 직후에는 반영까지 시간이 걸릴 수 있어요.", detail: d };
+    if (/LIMITED_NUMBER|EXCEED/i.test(t)) return { error: "오늘 호출 한도를 넘었어요. 내일 다시 시도해 주세요.", detail: d };
+    return { error: "응답을 읽지 못했어요.", detail: d };
+  }
+  var NET_ERR = {
+    error: "접속하지 못했어요. 인터넷 연결을 확인하거나, 브라우저가 이 주소 호출을 막은 경우일 수 있어요.",
+    detail: "다른 사이트 호출을 막는 경우(CORS)나, 서울 API 주소가 http라서 https로 연 페이지에서 막히는 경우가 있어요. 이때는 중계 서버(worker.js)를 쓰세요."
+  };
+  function keyParam(name) {
+    return state.key ? name + "=" + (state.key.indexOf("%") >= 0 ? state.key : encodeURIComponent(state.key)) : "";
+  }
+  function qs(params, extra, keyName) {
+    var q = [];
+    var k = keyParam(keyName || "serviceKey");
+    if (k) q.push(k);
+    Object.keys(params).forEach(function (n) {
+      if (params[n] !== "" && params[n] != null) q.push(n + "=" + encodeURIComponent(params[n]));
+    });
+    return q.concat(extra).join("&");
+  }
+
+  /* ---------- TAGO ---------- */
+  function tagoCall(service, op, params) {
+    addCalls("t");
+    var url = String(state.base || DEFAULTS.base).replace(/\/+$/, "") + "/" + service + "/" + op + "?" + qs(params, ["_type=json"]);
+    return fetch(url, { cache: "no-store" }).then(function (res) { return res.text(); }, function () { return { __network: true }; })
+      .then(function (text) {
+        if (text && text.__network) return NET_ERR;
+        var data;
+        try { data = JSON.parse(text); } catch (e) { return badResponse(text); }
+        var resp = (data && data.response) || {};
+        var head = resp.header || {};
+        var code = String(head.resultCode == null ? "00" : head.resultCode);
+        var body = resp.body || {};
+        var list = [];
+        if (body.items && body.items.item != null) list = Array.isArray(body.items.item) ? body.items.item : [body.items.item];
+        if (code !== "00" && !list.length) {
+          if (code === "03") return { items: [], note: "조회되는 정보가 없어요." };
+          var msg = head.resultMsg || ("결과 코드 " + code);
+          if (/세션/.test(msg)) return { error: "경기도 정보를 받아오는 서버의 동시 접속이 가득 찼어요. 잠시 뒤 다시 조회해 보세요.", detail: msg, busy: true };
+          return { error: msg, detail: "" };
+        }
+        return { items: list };
+      });
+  }
+
+  /* ---------- 서울 (JSON과 XML 둘 다 읽음) ---------- */
+  function seoulJson(d) {
+    var mh = d.msgHeader || {};
+    var l = (d.msgBody || {}).itemList;
+    return { code: mh.headerCd, msg: mh.headerMsg, items: l == null ? [] : (Array.isArray(l) ? l : [l]) };
+  }
+  function seoulXml(t) {
+    var doc = new DOMParser().parseFromString(t, "text/xml");
+    if (doc.querySelector("parsererror")) return null;
+    var hd = doc.querySelector("headerCd"), hm = doc.querySelector("headerMsg");
+    var items = [].slice.call(doc.querySelectorAll("itemList")).map(function (n) {
+      var o = {};
+      [].slice.call(n.children).forEach(function (c) { o[c.tagName] = c.textContent; });
+      return o;
+    });
+    return { code: hd ? hd.textContent : null, msg: hm ? hm.textContent : "", items: items };
+  }
+  function seoulParse(text) {
+    var t = String(text || "").trim(), p = null;
+    try { p = t.charAt(0) === "{" ? seoulJson(JSON.parse(t)) : seoulXml(t); } catch (e) { p = null; }
+    if (!p) return badResponse(t);
+    var code = p.code == null ? null : String(p.code);
+    if (code !== null && code !== "0" && !p.items.length) {
+      if (code === "4") return { items: [], note: "조회되는 정보가 없어요." };
+      return { error: p.msg || ("결과 코드 " + code), detail: "" };
+    }
+    if (code === null && !p.items.length) return badResponse(t);
+    return { items: p.items };
+  }
+  function seoulCall(op, params, keyName) {
+    addCalls("s");
+    keyName = keyName || "ServiceKey";
+    var url = String(state.seoulBase || DEFAULTS.seoulBase).replace(/\/+$/, "") + "/stationinfo/" + op + "?" + qs(params, ["resultType=json"], keyName);
+    return fetch(url, { cache: "no-store" }).then(function (res) { return res.text(); }, function () { return { __network: true }; })
+      .then(function (text) { return text && text.__network ? NET_ERR : seoulParse(text); })
+      .then(function (r) {
+        // 가이드의 요청 표는 serviceKey, 예시 주소는 ServiceKey라서 키 오류면 다른 표기로 한 번 더 시도
+        if (r.error && /인증키를 인식/.test(r.error) && keyName === "ServiceKey" && state.key) return seoulCall(op, params, "serviceKey");
+        return r;
+      });
+  }
+
+  /* ---------- 도착 정보 가공 ---------- */
+  function fmt(sec) {
+    var m = Math.floor(sec / 60);
+    return m < 1 ? "곧 도착" : m + "분";
+  }
+  function tagoGroups(list) {
+    var map = {}, order = [];
+    list.forEach(function (it) {
+      if (it == null || it.routeno == null) return;
+      var k = (it.routeid || "") + "|" + it.routeno;
+      if (!map[k]) { map[k] = { routeno: String(it.routeno), names: [String(it.routeno)], routetp: it.routetp, buses: [] }; order.push(k); }
+      var sec = it.arrtime === "" || it.arrtime == null ? NaN : Number(it.arrtime);
+      map[k].buses.push({ sec: isNaN(sec) ? null : sec, prev: it.arrprevstationcnt, low: /저상/.test(String(it.vehicletp || "")) });
+    });
+    return order.map(function (k) { return map[k]; });
+  }
+  function seoulBus(it, n) {
+    var msg = String(it["arrmsg" + n] || "").trim();
+    if (!msg) return null;
+    var sec = null;
+    var m = msg.match(/(\d+)분/), s = msg.match(/(\d+)초/);
+    if (m || s) sec = (m ? Number(m[1]) * 60 : 0) + (s ? Number(s[1]) : 0);
+    else if (/곧 도착/.test(msg)) sec = 0;
+    var p = msg.match(/\[(\d+)번째 전\]/);
+    return { sec: sec, text: sec == null ? msg : null, prev: p ? p[1] : null, low: String(it["busType" + n]) === "1" };
+  }
+  function seoulGroups(list) {
+    return list.map(function (it) {
+      var names = [it.busRouteAbrv, it.rtNm].filter(function (x) { return x != null && String(x) !== ""; }).map(String);
+      if (!names.length) return null;
+      return {
+        routeno: names[0], names: names,
+        routetp: SEOUL_ROUTE_TYPE[String(it.routeType)] || "",
+        dir: it.adirection ? it.adirection + " 방면" : "",
+        buses: [seoulBus(it, 1), seoulBus(it, 2)].filter(Boolean)
+      };
+    }).filter(Boolean);
+  }
+  function toGroups(r, kind) {
+    if (r.error) return r;
+    var groups = kind === "seoul" ? seoulGroups(r.items) : tagoGroups(r.items);
+    if (r.items.length && !groups.length) {
+      return { error: "응답 항목 이름이 예상과 달라 버스 번호를 읽지 못했어요.", detail: "받은 항목: " + Object.keys(r.items[0]).join(", ") };
+    }
+    groups.forEach(function (g) {
+      g.buses.sort(function (a, b) { return (a.sec == null ? Infinity : a.sec) - (b.sec == null ? Infinity : b.sec); });
+    });
+    return { items: groups, note: r.note };
+  }
+  function wantedRoutes(stop) {
+    return String(stop.routes || "").split(/[,\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  }
+  function isSeoul(s) { return s.provider === "seoul"; }
+  function stopReady(s) { return isSeoul(s) ? !!s.arsId : !!(s.cityCode && s.nodeId); }
+
+  function direct() {
+    return String(state.base).indexOf("apis.data.go.kr") >= 0 || String(state.seoulBase).indexOf("ws.bus.go.kr") >= 0;
+  }
+  // 정류장이 여러 개일 때 동시에 몰리지 않게 조금씩 간격을 두고, 서버가 붐비면 3초 뒤 한 번 더 시도
+  function wait(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+  function tagoArrival(s, delay) {
+    function once() {
+      return tagoCall(ARR, "getSttnAcctoArvlPrearngeInfoList", { cityCode: s.cityCode, nodeId: s.nodeId, pageNo: 1, numOfRows: 60 });
+    }
+    return wait(delay).then(once).then(function (r) {
+      return r.busy ? wait(3000).then(once) : r;
+    });
+  }
+  function refreshAll() {
+    if (!state.key && direct()) {
+      renderNotice("설정에서 인증키를 입력하면 도착정보를 조회해요.");
+      openSettings(true);
+      render();
+      return Promise.resolve();
+    }
+    renderNotice("");
+    state.stops.forEach(function (s, i) {
+      if (!stopReady(s)) results[i] = { error: isSeoul(s) ? "정류소 번호가 비어 있어요." : "도시코드나 정류소ID가 비어 있어요." };
+      else results[i] = Object.assign({}, results[i], { loading: true });
+    });
+    render();
+    $("#refresh").disabled = true;
+    var jobs = state.stops.map(function (s, i) {
+      if (!stopReady(s)) return Promise.resolve();
+      var p = isSeoul(s)
+        ? seoulCall("getStationByUid", { arsId: s.arsId }).then(function (r) { return toGroups(r, "seoul"); })
+        : tagoArrival(s, i * 300).then(function (r) { return toGroups(r, "tago"); });
+      return p.then(function (r) { results[i] = r; });
+    });
+    return Promise.all(jobs).then(function () {
+      lastAt = new Date();
+      $("#refresh").disabled = false;
+      render();
+    });
+  }
+
+  /* ---------- 화면 ---------- */
+  function renderNotice(msg) {
+    var n = $("#notice");
+    n.hidden = !msg;
+    n.textContent = msg || "";
+  }
+
+  function arrRow(g) {
+    var b1 = g.buses[0] || {}, b2 = g.buses[1];
+    var meta = [];
+    if (g.routetp) meta.push(g.routetp);
+    if (g.dir) meta.push(g.dir);
+    if (b1.prev != null && b1.prev !== "" && Number(b1.prev) >= 0) meta.push(b1.prev + "정류장 전");
+    if (b1.low) meta.push("저상");
+    var t1cls = "t1" + (b1.sec != null && b1.sec < 180 ? " soon" : "") + (b1.sec == null && b1.text ? " text" : "");
+    var t1 = h("div", { class: t1cls }, b1.sec != null ? fmt(b1.sec) : (b1.text || "정보 없음"));
+    var t2 = b2 && b2.sec != null ? h("div", { class: "t2" }, "다음 " + fmt(b2.sec)) : null;
+    return {
+      sec: b1.sec == null ? Infinity : b1.sec,
+      el: h("div", { class: "arr" },
+        h("span", { class: "badge" }, g.routeno),
+        h("div", { class: "mid" }, meta.length ? h("div", { class: "meta" }, meta.map(function (m) { return h("span", {}, m); })) : null),
+        h("div", { class: "times" }, t1, t2))
+    };
+  }
+
+  function renderCard(stop, i) {
+    var r = results[i] || {};
+    var ids = isSeoul(stop) ? [stop.arsId] : [stop.nodeNo, stop.nodeId].filter(Boolean);
+    var where = isSeoul(stop) ? "서울" : (stop.cityName || "");
+    var head = h("div", { class: "card-head" },
+      h("h3", {}, stop.name || "이름 없는 정류장"),
+      h("span", { class: "sid" }, (where ? where + " · " : "") + ids.join(" · ")));
+    var body;
+    if (r.error) {
+      body = h("div", { class: "state err" }, r.error, r.detail ? h("small", {}, r.detail) : null);
+    } else if (!r.items) {
+      body = h("div", { class: "state" }, r.loading ? "불러오는 중…" : (state.key ? "조회 전이에요." : "인증키를 입력하고 저장하면 조회해요."));
+    } else {
+      var want = wantedRoutes(stop);
+      var groups = r.items;
+      if (want.length) groups = groups.filter(function (g) { return want.some(function (w) { return g.names.indexOf(w) >= 0; }); });
+      var rows = groups.map(arrRow).sort(function (a, b) { return a.sec - b.sec; }).map(function (x) { return x.el; });
+      if (want.length) {
+        var present = [];
+        groups.forEach(function (g) { present = present.concat(g.names); });
+        want.forEach(function (w) {
+          if (present.indexOf(w) < 0) {
+            rows.push(h("div", { class: "arr none" }, h("span", { class: "badge" }, w), h("div", { class: "mid" }), h("div", { class: "times" }, h("div", { class: "t1" }, "도착정보 없음"))));
+          }
+        });
+      }
+      body = rows.length ? h("div", { class: "rows" }, rows) : h("div", { class: "state" }, r.note || "표시할 도착정보가 없어요.");
+    }
+    return h("article", { class: "card" + (r.loading ? " loading" : "") }, head, body);
+  }
+
+  function render() {
+    var g = $("#grid");
+    if (!state.stops.length) {
+      g.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "아직 정류장이 없어요"), "설정의 「정류장 찾기」에서 이름으로 검색해 추가하세요."));
+    } else {
+      g.replaceChildren.apply(g, state.stops.map(renderCard));
+    }
+    var c = getCalls();
+    var m = $("#meter");
+    m.textContent = "오늘 TAGO " + c.t + "/" + TAGO_LIMIT + " · 서울 " + c.s;
+    m.classList.toggle("high", c.t >= TAGO_LIMIT * 0.8);
+    $("#stamp").textContent = lastAt ? pad(lastAt.getHours()) + ":" + pad(lastAt.getMinutes()) + ":" + pad(lastAt.getSeconds()) : "--:--:--";
+  }
+
+  /* ---------- 설정 ---------- */
+  function openSettings(force) {
+    var p = $("#settings");
+    p.hidden = force === true ? false : !p.hidden;
+    if (!p.hidden) fillSettings();
+  }
+  function stopRow(s, i) {
+    var seoul = isSeoul(s);
+    function field(cls, id, label, val, ph, mode) {
+      return h("div", { class: "field " + cls },
+        h("label", { for: id }, label),
+        h("input", { id: id, type: "text", value: val || "", placeholder: ph || "", spellcheck: "false", autocomplete: "off", inputmode: mode || null }));
+    }
+    var src = h("div", { class: "field src" },
+      h("label", { for: "stop-src-" + i }, "지역"),
+      h("select", { id: "stop-src-" + i, onchange: function () {
+        collect();
+        var st = state.stops[i];
+        st.provider = $("#stop-src-" + i).value;
+        st.cityCode = ""; st.nodeId = ""; st.arsId = ""; st.nodeNo = ""; st.cityName = "";
+        fillSettings();
+      } },
+        h("option", { value: "tago", selected: !seoul }, "TAGO"),
+        h("option", { value: "seoul", selected: seoul }, "서울")));
+    return h("div", { class: "stoprow", "data-i": i },
+      field("name", "stop-name-" + i, "이름", s.name, "예: 집 앞"),
+      src,
+      seoul ? null : field("city", "stop-city-" + i, "도시코드", s.cityCode, "예: 23", "numeric"),
+      field("idf", "stop-id-" + i, seoul ? "정류소 번호(5자리)" : "정류소ID", seoul ? s.arsId : s.nodeId, seoul ? "예: 23285" : "예: ICB164000395", seoul ? "numeric" : null),
+      field("routes", "stop-routes-" + i, "버스 번호(쉼표로 구분)", s.routes, "예: 9, 5500-1, 6411"),
+      h("button", { class: "ghost small", type: "button", onclick: function () { collect(); state.stops.splice(i, 1); fillSettings(); } }, "삭제"));
+  }
+  function fillCityOptions() {
+    var sel = $("#q-city");
+    var cities = loadCities();
+    sel.replaceChildren(h("option", { value: "seoul" }, "서울 (서울시 API)"));
+    if (!cities.length) sel.append(h("option", { value: "", disabled: true }, "TAGO 도시는 목록을 불러오세요"));
+    cities.forEach(function (c) { sel.append(h("option", { value: c.code }, c.name + " (" + c.code + ")")); });
+    sel.value = state.city || "seoul";
+    if (sel.value !== (state.city || "seoul")) sel.value = "seoul";
+  }
+  function fillSettings() {
+    $("#key").value = state.key;
+    $("#base").value = state.base;
+    $("#seoulBase").value = state.seoulBase;
+    $("#auto").checked = !!state.auto;
+    var box = $("#stoprows");
+    if (state.stops.length) box.replaceChildren.apply(box, state.stops.map(stopRow));
+    else box.replaceChildren(h("p", { class: "msg" }, "아직 없어요. 아래 「정류장 찾기」로 추가하세요."));
+    fillCityOptions();
+  }
+  function collect() {
+    state.key = $("#key").value.trim();
+    state.base = $("#base").value.trim() || DEFAULTS.base;
+    state.seoulBase = $("#seoulBase").value.trim() || DEFAULTS.seoulBase;
+    state.auto = $("#auto").checked;
+    var sel = $("#q-city").value;
+    if (sel) state.city = sel;
+    var rows = document.querySelectorAll(".stoprow");
+    if (!rows.length) return;
+    var out = [];
+    rows.forEach(function (row) {
+      var i = Number(row.getAttribute("data-i"));
+      var old = state.stops[i] || {};
+      var seoul = $("#stop-src-" + i).value === "seoul";
+      var id = $("#stop-id-" + i).value.trim();
+      out.push({
+        provider: seoul ? "seoul" : "tago",
+        name: $("#stop-name-" + i).value.trim(),
+        cityCode: seoul ? "" : $("#stop-city-" + i).value.replace(/\D/g, ""),
+        nodeId: seoul ? "" : id,
+        arsId: seoul ? id.replace(/\D/g, "") : "",
+        routes: $("#stop-routes-" + i).value.trim(),
+        nodeNo: old.nodeNo || "",
+        cityName: old.cityName || ""
+      });
+    });
+    state.stops = out;
+  }
+
+  /* ---------- 정류장 찾기 ---------- */
+  function cityName(code) {
+    var f = loadCities().filter(function (c) { return String(c.code) === String(code); })[0];
+    return f ? f.name : "";
+  }
+  function setCitiesMsg(t, err) {
+    var m = $("#q-cities-msg");
+    m.textContent = t || "";
+    m.className = "msg" + (err ? " err" : "");
+  }
+  function fetchCities() {
+    collect(); save();
+    setCitiesMsg("불러오는 중…");
+    tagoCall(STN, "getCtyCodeList", { pageNo: 1, numOfRows: 200 }).then(function (r) {
+      render();
+      if (r.error) { setCitiesMsg(r.error, true); return; }
+      var cities = r.items.map(function (it) { return { code: String(it.citycode), name: String(it.cityname) }; })
+        .filter(function (c) { return c.code && c.name; });
+      try { localStorage.setItem(CITIES, JSON.stringify(cities)); } catch (e) {}
+      setCitiesMsg(cities.length + "개 도시를 불러왔어요.");
+      fillCityOptions();
+    });
+  }
+
+  function resultItem(it, area) {
+    var seoul = area === "seoul";
+    var picked = {};
+    var chips = h("div", { class: "chips" });
+    var status = h("div", { class: "msg" });
+    function addStop() {
+      collect();
+      var routes = Object.keys(picked).filter(function (k) { return picked[k]; }).join(", ");
+      state.stops.push(seoul
+        ? { provider: "seoul", name: String(it.stNm || ""), cityCode: "", nodeId: "", arsId: String(it.arsId), nodeNo: String(it.arsId), cityName: "서울", routes: routes }
+        : { provider: "tago", name: String(it.nodenm || ""), cityCode: String(area), nodeId: String(it.nodeid || ""), arsId: "", nodeNo: it.nodeno != null ? String(it.nodeno) : "", cityName: cityName(area), routes: routes });
+      save();
+      fillSettings();
+      status.className = "msg";
+      status.textContent = "내 정류장에 추가했어요. 맨 아래 「저장하고 조회」를 누르면 반영됩니다.";
+    }
+    function addChips(names) {
+      var seen = {};
+      chips.replaceChildren();
+      names.forEach(function (n) {
+        if (!n.no || seen[n.no]) return;
+        seen[n.no] = true;
+        var label = n.to ? n.no + " → " + n.to : n.no;
+        var c = h("button", { class: "chip", type: "button", "aria-pressed": "false", title: label }, label);
+        c.addEventListener("click", function () {
+          picked[n.no] = !picked[n.no];
+          c.setAttribute("aria-pressed", picked[n.no] ? "true" : "false");
+        });
+        chips.append(c);
+      });
+    }
+    function loadRoutes(btn) {
+      btn.disabled = true;
+      status.className = "msg";
+      status.textContent = "경유 노선을 불러오는 중…";
+      var job = seoul
+        ? seoulCall("getRouteByStation", { arsId: it.arsId }).then(function (r) {
+            if (!r.error) r.names = r.items.map(function (x) { return { no: String(x.busRouteNm || x.busRouteAbrv || ""), to: x.stEnd }; });
+            return r;
+          })
+        : tagoCall(STN, "getSttnThrghRouteList", { cityCode: area, nodeid: it.nodeid, pageNo: 1, numOfRows: 100 }).then(function (r) {
+            if (!r.error) r.names = r.items.map(function (x) { return { no: String(x.routeno || ""), to: x.endnodenm }; });
+            return r;
+          });
+      job.then(function (r) {
+        render();
+        btn.disabled = false;
+        if (r.error) { status.className = "msg err"; status.textContent = r.error; return; }
+        var has = r.names.some(function (n) { return n.no; });
+        status.textContent = has ? "탈 버스를 눌러 선택하세요. 고르지 않으면 모든 노선을 보여줘요." : "경유 노선 정보가 없어요.";
+        addChips(r.names);
+      });
+    }
+    var routeBtn = h("button", { class: "small", type: "button", onclick: function () { loadRoutes(routeBtn); } }, "경유 노선");
+    var nm = seoul ? it.stNm : it.nodenm;
+    var idText = seoul ? "번호 " + it.arsId + (it.stId ? " · ID " + it.stId : "") : (it.nodeno != null ? "번호 " + it.nodeno + " · " : "") + "ID " + it.nodeid;
+    return h("div", { class: "res" },
+      h("div", { class: "res-top" },
+        h("div", {}, h("div", { class: "res-name" }, nm || "이름 없음"), h("div", { class: "res-id" }, idText)),
+        h("div", { class: "row-actions" }, routeBtn, h("button", { class: "small primary", type: "button", onclick: addStop }, "추가"))),
+      chips, status);
+  }
+
+  function searchStops() {
+    collect(); save();
+    var out = $("#q-out");
+    var area = $("#q-city").value;
+    var nm = $("#q-name").value.trim();
+    var no = $("#q-no").value.replace(/\D/g, "");
+    if (!area) { out.replaceChildren(h("p", { class: "msg err" }, "지역을 먼저 선택하세요. TAGO 도시가 없으면 「TAGO 도시 목록 불러오기」를 누르세요.")); return; }
+    if (!nm && !no) { out.replaceChildren(h("p", { class: "msg err" }, "정류소 이름이나 번호를 입력해 주세요.")); return; }
+    if (area === "seoul") {
+      if (!nm) { out.replaceChildren(h("div", { class: "results" }, resultItem({ arsId: no, stNm: "서울 정류소 " + no }, "seoul"))); return; }
+      out.replaceChildren(h("p", { class: "msg" }, "검색하는 중…"));
+      seoulCall("getStationByName", { stSrch: nm }).then(function (r) {
+        render();
+        if (r.error) { out.replaceChildren(h("p", { class: "msg err" }, r.error + (r.detail ? " (" + r.detail + ")" : ""))); return; }
+        var list = r.items.filter(function (x) { return x.arsId && String(x.arsId) !== "0"; });
+        if (no) list = list.filter(function (x) { return String(x.arsId) === no; });
+        if (!list.length) { out.replaceChildren(h("p", { class: "msg" }, "검색 결과가 없어요. 이름 일부만 입력해 보세요.")); return; }
+        out.replaceChildren.apply(out, list.slice(0, 30).map(function (it) { return resultItem(it, "seoul"); }));
+      });
+      return;
+    }
+    out.replaceChildren(h("p", { class: "msg" }, "검색하는 중…"));
+    tagoCall(STN, "getSttnNoList", { cityCode: area, nodeNm: nm, nodeNo: no, pageNo: 1, numOfRows: 30 }).then(function (r) {
+      render();
+      if (r.error) { out.replaceChildren(h("p", { class: "msg err" }, r.error + (r.detail ? " (" + r.detail + ")" : ""))); return; }
+      if (!r.items.length) { out.replaceChildren(h("p", { class: "msg" }, "검색 결과가 없어요. 이름 일부만 입력하거나 지역을 확인해 보세요.")); return; }
+      out.replaceChildren.apply(out, r.items.map(function (it) { return resultItem(it, area); }));
+    });
+  }
+
+  /* ---------- 자동 갱신 ---------- */
+  function schedule() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (!state.auto) return;
+    timer = setInterval(function () {
+      if (document.visibilityState === "visible" && state.stops.length) refreshAll();
+    }, 60000);
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && state.auto && lastAt && Date.now() - lastAt.getTime() > 45000) refreshAll();
+  });
+
+  /* ---------- 이벤트 ---------- */
+  $("#refresh").addEventListener("click", function () { refreshAll(); });
+  $("#toggle-settings").addEventListener("click", function () { openSettings(); });
+  $("#close-settings").addEventListener("click", function () { $("#settings").hidden = true; });
+  $("#q-cities").addEventListener("click", fetchCities);
+  $("#q-go").addEventListener("click", searchStops);
+  ["#q-name", "#q-no"].forEach(function (s) {
+    $(s).addEventListener("keydown", function (e) { if (e.key === "Enter") searchStops(); });
+  });
+  $("#save").addEventListener("click", function () {
+    collect();
+    save();
+    results = {};
+    schedule();
+    $("#settings").hidden = true;
+    refreshAll();
+  });
+
+  render();
+  schedule();
+  if (!state.key && direct()) {
+    renderNotice("설정에서 인증키를 입력하면 도착정보를 조회해요.");
+    openSettings(true);
+  } else if (!state.stops.length) {
+    openSettings(true);
+  } else {
+    refreshAll();
+  }
+})();
+</script>
+</body>
+</html>
